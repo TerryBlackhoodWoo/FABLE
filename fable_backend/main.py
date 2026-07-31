@@ -10,6 +10,7 @@ FABLE 01단계 MVP — 앱 진입점
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 import database
 from services import gemini_service
@@ -25,4 +26,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FABLE 01단계 MVP", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(ask_router)
