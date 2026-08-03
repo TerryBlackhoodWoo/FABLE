@@ -1,155 +1,87 @@
-# FABLE
+# FABLE Frontend
 
-영화·게임을 보기 전, 관련 신화·역사 속 인물이 직접 배경지식을 브리핑해주는 RAG 기반 캐릭터 챗 백엔드.
+FABLE의 Next.js(TypeScript) 프론트엔드 — 원전 근거 캐릭터 챗 UI.
 
-> "각색은 다르지만 검증된 사실은 일치한다" — 여러 각색 매체가 같은 사건을 다르게 그려도, 검증 가능한 원전 사실은 하나로 수렴한다는 게 이 프로젝트의 콘텐츠 문법입니다.
+백엔드 저장소: [FABLE](https://github.com/TerryBlackhoodWoo/FABLE)
 
-프론트엔드 저장소: [FABLE_frontend](https://github.com/TerryBlackhoodWoo/FABLE_frontend)
+## 개요
 
-## 프로젝트 소개
-
-〈남산의 부장들〉을 배경지식 없이 봤을 때와, 관련 역사(10·26 등)를 알고 봤을 때 같은 영화가 완전히 다르게 읽혔던 경험에서 출발한 프로젝트입니다. FABLE은 이 경험을 서비스로 만들었습니다 — 영화를 보기 전, 신화·역사 속 인물(내레이터)이 직접 "이거 알고 보면 더 재밌어"라고 브리핑해주는 캐릭터 챗입니다.
-
-01단계 MVP는 호메로스가 진행하는 신화 도메인(일리아스·오디세이아)을 다룹니다.
-
-## 핵심 설계
-
-- **내레이터 → 캐릭터 핸드오프**: 호메로스가 전체 흐름을 안내하다가, 질문이 특정 인물(아킬레우스 등)의 디테일을 물으면 그 캐릭터로 답변 화자가 전환됩니다.
-- **원전 근거 우선**: 모든 답변은 퍼블릭도메인 원전(Samuel Butler역 일리아드/오디세이아) 청크를 RAG로 검색해 근거로 삼습니다. 원문 인용은 15단어 이내로 제한하고, 근거가 부족하면 "아직 다루지 못했다"고 솔직히 답합니다.
-- **1답변 1화자**: 답변 안에서 화자가 임의로 바뀌지 않도록 프롬프트 레벨에서 강제합니다.
+질문을 입력하면 백엔드(`FastAPI`)의 `/ask`를 호출해, 신화 속 인물(호메로스 또는 핸드오프된 캐릭터)의 답변과 원전 출처(작품·챕터·유사도 점수), 그리고 그 장면을 그린 고전 미술/유물 이미지를 함께 보여주는 미니멀 채팅 UI입니다.
 
 ## 기술 스택
 
-| 영역 | 기술 |
-|---|---|
-| 백엔드 | FastAPI (Python 3.11, async) |
-| 벡터 검색 | MongoDB Atlas Vector Search |
-| LLM | Gemini API (`gemini-flash-latest`, `gemini-embedding-001`) |
-| 컨테이너 | Docker |
-| 배포 | Railway (예정) |
+- Next.js 16 (App Router)
+- TypeScript
+- Tailwind CSS
 
-## 아키텍처
+## 디자인 방향
 
-```
-[Next.js(TS) 프론트엔드]
-        │ HTTPS/JSON
-        ▼
-[FastAPI 백엔드 (async)]
-    │
-    ├─→ [MongoDB Atlas Vector Search] — 원전 텍스트 임베딩 저장/검색
-    │
-    └─→ [Gemini API] — 질문 라우팅 판단 + 답변 생성
-         (asyncio.gather로 검색+라우팅 동시 처리)
-```
+FABLE 기획 초기부터 이어져 온 그리스 도자기(테라코타·브론즈·다크어스) 팔레트를 웹에도 그대로 적용했습니다.
 
-### 백엔드 레이어 구조
+| 토큰 | 값 | 용도 |
+|---|---|---|
+| Background | `#16110D` | 페이지 배경 |
+| Panel | `#1F1712` | 카드/입력창 배경 |
+| Terracotta | `#C1592F` | 버튼, 화자명 강조 |
+| Bronze | `#B0894F` | 보더, 라벨 |
+| Cream | `#EFE4D0` | 본문 텍스트 |
 
-```
-fable_backend/
-├── main.py                      # 앱 진입점, CORS/lifespan 설정
-├── config.py                    # 환경변수, 상수, 화자 목록
-├── database.py                  # MongoDB 연결 관리
-├── schemas.py                   # 요청/응답 Pydantic 모델
-├── dao/
-│   └── source_chunk_dao.py      # DB 접근 전담 (벡터 검색 쿼리)
-├── services/
-│   ├── gemini_service.py        # Gemini 호출 (임베딩/라우팅/답변생성)
-│   └── retrieval_service.py     # 임베딩+검색 조합
-└── controllers/
-    └── ask_controller.py        # /ask, /health 라우트
-```
-
-DAO(DB 접근) / Services(외부 API 호출) / Controllers(라우트)로 계층을 분리해, 각 레이어가 서로의 책임을 침범하지 않도록 설계했습니다.
+- **Display**: Noto Serif KR (타이틀, 화자명)
+- **Body**: Noto Sans KR (본문)
+- **Mono**: IBM Plex Mono (출처·유사도 점수 라벨)
+- **시그니처 요소**: 그리스 문양(meander) SVG 패턴 — 카드 상단 hairline으로만 절제해서 사용
 
 ## 로컬 실행
 
 ### 요구 사항
-- Python 3.11+
-- MongoDB Atlas 클러스터 (M0 무료 티어로 충분)
-- Gemini API 키
+- Node.js 18+
+- 실행 중인 FABLE 백엔드 ([설정 가이드](https://github.com/TerryBlackhoodWoo/FABLE))
 
 ### 설치
 
 ```bash
-git clone https://github.com/TerryBlackhoodWoo/FABLE.git
-cd FABLE/fable_backend
-pip install -r requirements.txt
+git clone https://github.com/TerryBlackhoodWoo/FABLE_frontend.git
+cd FABLE_frontend
+npm install
 ```
 
 ### 환경변수
 
-`fable_backend/.env` 파일 생성:
+`.env.local` 파일 생성:
 
 ```
-MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/
-GEMINI_API_KEY=<your-gemini-api-key>
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 ```
-
-> 값에 따옴표를 넣지 마세요. `python-dotenv`는 따옴표를 자동으로 처리하지만, Docker의 `--env-file` 옵션은 따옴표를 값의 일부로 그대로 읽어 연결 오류가 발생합니다.
 
 ### 실행
 
 ```bash
-uvicorn main:app --reload
+npm run dev
 ```
 
-`http://127.0.0.1:8000/docs`에서 Swagger UI로 API를 테스트할 수 있습니다.
+`http://localhost:3000`에서 확인합니다.
 
-### Docker로 실행
+## 프로젝트 구조
 
-```bash
-docker build -t fable-backend .
-docker run -d -p 8000:8000 --env-file .env --name fable-backend fable-backend
+```
+src/app/
+├── layout.tsx     # 폰트(Noto Serif/Sans KR, IBM Plex Mono) 설정
+├── globals.css     # 전역 스타일, 색상 토큰
+└── page.tsx        # 메인 채팅 UI (질문 입력, 답변/출처/이미지 표시)
 ```
 
-## API
+## 기능
 
-### `POST /ask`
+- 질문 입력 → `/ask` 호출 → 화자·답변·원전 출처·장면 이미지 표시
+- 로딩 상태("묻는 중…"), 에러 메시지 — HTTP 오류 응답과 네트워크 연결 실패를 구분해서 실제 원인을 보여줌
+- 이미지가 없는 응답(관련 명화를 못 찾은 경우)에도 자연스럽게 대응 (이미지 영역 자체를 렌더링하지 않음)
 
-**요청**
-```json
-{
-  "question": "아킬레우스는 왜 화가 났어?"
-}
-```
+## 백엔드 연동 시 주의사항 (CORS)
 
-**응답**
-```json
-{
-  "answer": "내가 왜 분노했냐고 묻는가? 오만함과 탐욕에 빠진 아가멤논이...",
-  "speaker": "아킬레우스",
-  "sources": [
-    {
-      "work_title": "일리아드",
-      "chapter": "BOOK I",
-      "chunk_text": "...",
-      "score": 0.877
-    }
-  ]
-}
-```
-
-### `GET /health`
-
-서버 상태 확인용.
-
-## 데이터 준비
-
-원전 텍스트 청크 분할 + 임베딩 + MongoDB 저장은 `build_source_chunks.py`로 수행합니다.
-
-```bash
-python build_source_chunks.py
-```
-
-`sources/` 폴더에 있는 퍼블릭도메인 원전(Project Gutenberg, Samuel Butler역 일리아드·오디세이아)을 문장 단위로 재청크하고, Gemini Embedding API로 벡터화한 뒤 MongoDB의 `source_chunks` 컬렉션에 저장합니다.
-
-## 현재 범위 (01단계)
-
-- 신화 도메인: 일리아드 BOOK I(전쟁 발발 정황), 오디세이아 BOOK VIII(목마 에피소드)
-- 화자: 호메로스(내레이터), 아킬레우스, 아가멤논, 오디세우스, 데모도코스
+백엔드가 다른 출처(포트 8000)에서 도는 만큼, FastAPI 쪽에 `CORSMiddleware`로 `localhost:3000`을 허용 출처로 등록해야 합니다. 이게 없으면 `OPTIONS /ask` 요청이 브라우저 단에서 `405`로 막힙니다 (백엔드 저장소의 `main.py` 참고).
 
 ## 다음 단계
 
 - [ ] Railway 배포
-- [ ] 역사 도메인(헤로도토스) 추가
-- [ ] 캐릭터 DB를 코드 하드코딩에서 MongoDB 컬렉션으로 이전
+- [ ] 대화 히스토리(멀티턴) UI
+- [ ] 캐릭터 핸드오프 시각적 전환 효과
