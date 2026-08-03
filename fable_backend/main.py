@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import database
+import database_pg
 from services import gemini_service
 from controllers.ask_controller import router as ask_router
 
@@ -20,9 +21,11 @@ from controllers.ask_controller import router as ask_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     database.connect()
+    await database_pg.connect()
     gemini_service.connect()
     yield
     database.close()
+    await database_pg.close()
 
 
 app = FastAPI(title="FABLE 01단계 MVP", lifespan=lifespan)

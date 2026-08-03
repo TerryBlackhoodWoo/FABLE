@@ -5,6 +5,7 @@ load_dotenv()
 
 MONGODB_URI = os.getenv("MONGODB_URI")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")  # Supabase(Postgres) 연결 문자열
 
 DB_NAME = "fable_mvp"
 COLLECTION_NAME = "source_chunks"
@@ -26,13 +27,13 @@ SPEAKERS = {
     "데모도코스": "눈먼 음유시인. 목마 이야기를 노래로 들려준다.",
 }
 
-# 화자별 Wikimedia Commons 검색어 (고전 회화/조각 검색이 잘 걸리도록 영문 미술 용어로 구성)
+# 화자별 영문 위키백과 문서 제목 (동명이인 없이 정확히 그 인물을 가리키는 제목으로)
 SPEAKER_SEARCH_TERMS = {
-    "호메로스": "Homer bust sculpture",
-    "아킬레우스": "Achilles painting",
-    "아가멤논": "Agamemnon painting",
-    "오디세우스": "Odysseus Ulysses painting",
-    "데모도코스": "Demodocus Odyssey",
+    "호메로스": "Homer",
+    "아킬레우스": "Achilles",
+    "아가멤논": "Agamemnon",
+    "오디세우스": "Odysseus",
+    "데모도코스": "Demodocus",
 }
 
 WIKIMEDIA_USER_AGENT = "FABLE/0.1 (https://github.com/TerryBlackhoodWoo/FABLE)"
