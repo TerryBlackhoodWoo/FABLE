@@ -25,3 +25,14 @@ SPEAKERS = {
     "오디세우스": "오디세이아 BOOK VIII에서 데모도코스에게 목마 노래를 청하는 인물.",
     "데모도코스": "눈먼 음유시인. 목마 이야기를 노래로 들려준다.",
 }
+
+# 화자별 Wikimedia Commons 검색어 (고전 회화/조각 검색이 잘 걸리도록 영문 미술 용어로 구성)
+SPEAKER_SEARCH_TERMS = {
+    "호메로스": "Homer bust sculpture",
+    "아킬레우스": "Achilles painting",
+    "아가멤논": "Agamemnon painting",
+    "오디세우스": "Odysseus Ulysses painting",
+    "데모도코스": "Demodocus Odyssey",
+}
+
+WIKIMEDIA_USER_AGENT = "FABLE/0.1 (https://github.com/TerryBlackhoodWoo/FABLE)"

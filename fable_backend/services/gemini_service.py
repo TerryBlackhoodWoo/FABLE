@@ -20,7 +20,9 @@ def connect():
 
 def get_client() -> genai.Client:
     if _client is None:
-        raise RuntimeError("Gemini 클라이언트가 아직 초기화되지 않았습니다. connect()를 먼저 호출하세요.")
+        raise RuntimeError(
+            "Gemini 클라이언트가 아직 초기화되지 않았습니다. connect()를 먼저 호출하세요."
+        )
     return _client
 
 
@@ -35,7 +37,7 @@ async def embed_query(text: str) -> list[float]:
 
 
 async def decide_routing(question: str) -> dict:
-    """질문을 어느 화자가 답할지 판단."""
+    """질문을 어느 화자가 답할지 판단하고, 이 장면에 맞는 미술 검색어까지 같이 뽑아낸다."""
     speaker_list = "\n".join(f"- {name}: {desc}" for name, desc in SPEAKERS.items())
 
     prompt = f"""다음은 FABLE 서비스의 화자 목록입니다:
@@ -43,12 +45,18 @@ async def decide_routing(question: str) -> dict:
 
 사용자 질문: "{question}"
 
-이 질문에 가장 적합하게 답변할 화자를 목록 중에서 한 명 선택하세요.
-질문이 특정 인물의 감정/행동/디테일을 구체적으로 묻는다면 그 인물로,
-전반적인 배경 설명이나 두 작품을 아우르는 질문이면 "호메로스"로 판단하세요.
+1. 이 질문에 가장 적합하게 답변할 화자를 목록 중에서 한 명 선택하세요.
+   질문이 특정 인물의 감정/행동/디테일을 구체적으로 묻는다면 그 인물로,
+   전반적인 배경 설명이나 두 작품을 아우르는 질문이면 "호메로스"로 판단하세요.
+
+2. 이 질문이 다루는 구체적인 장면을 그린 고전 회화/조각을 위키미디어 커먼즈에서 찾기 위한
+   영문 검색어를 만드세요. 인물 이름만 쓰지 말고, 장면을 특정할 수 있는 단어를 포함하세요
+   (예: "아킬레우스는 왜 화났어?" → "Achilles rage Agamemnon Briseis painting").
+   질문이 특정 장면을 안 다루는 일반적인 질문이면, 그 화자를 다룬 대표적인 고전 미술 검색어로
+   대신하세요 (예: "Achilles Greek mythology painting").
 
 반드시 아래 JSON 형식으로만 답하세요 (다른 설명 없이):
-{{"speaker": "선택한 화자 이름", "reason": "간단한 판단 이유(한 문장)"}}"""
+{{"speaker": "선택한 화자 이름", "reason": "간단한 판단 이유(한 문장)", "image_query": "영문 미술 검색어"}}"""
 
     response = await asyncio.to_thread(
         get_client().models.generate_content,
@@ -62,7 +70,11 @@ async def decide_routing(question: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return {"speaker": "호메로스", "reason": "라우팅 판단 실패로 기본 내레이터 배정"}
+        return {
+            "speaker": "호메로스",
+            "reason": "라우팅 판단 실패로 기본 내레이터 배정",
+            "image_query": "",
+        }
 
 
 async def generate_answer(question: str, chunks: list[dict], routing: dict) -> str:
@@ -72,7 +84,8 @@ async def generate_answer(question: str, chunks: list[dict], routing: dict) -> s
 
     if chunks:
         context_block = "\n\n".join(
-            f"[출처: {c['work_title']} {c['chapter']}]\n{c['chunk_text']}" for c in chunks
+            f"[출처: {c['work_title']} {c['chapter']}]\n{c['chunk_text']}"
+            for c in chunks
         )
     else:
         context_block = "(관련 원문 근거를 찾지 못했습니다.)"
