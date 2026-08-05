@@ -19,6 +19,7 @@
 - **1답변 1화자**: 답변 안에서 화자가 임의로 바뀌지 않도록 프롬프트 레벨에서 강제합니다.
 - **장면 기반 이미지 검색**: 답변마다 그 장면을 그린 고전 회화·유물 이미지를 Wikimedia에서 함께 찾아 보여줍니다. 인물 이름만으로 검색하면 동명이인이 걸리는 문제가 있어, 라우팅 판단 시 Gemini가 장면을 특정하는 영문 검색어까지 함께 생성하고, 실패 시 위키백과 인물 대표 이미지로 폴백합니다.
 - **계정별 접근 제어**: 개발자 계정(무제한)과 배포용 계정(일일 한도)을 구분해 API 키로 인증합니다. 모든 요청은 Postgres에 로그로 남습니다.
+- **대시보드 로그인**: 관리자가 발급한 아이디/비밀번호로 로그인해, 해당 계정의 대화 로그와 사용량을 조회할 수 있습니다. API 키 인증(콘텐츠용)과 완전히 분리된 별도 인증 트랙(JWT)입니다.
 
 ## 기술 스택
 
@@ -29,18 +30,19 @@
 | 계정 · 로그 | PostgreSQL (Supabase) |
 | LLM | Gemini API (`gemini-flash-latest`, `gemini-embedding-001`) |
 | 이미지 | Wikimedia Commons / Wikipedia API (키 불필요) |
+| 인증 | API 키(SHA-256 해시) + JWT(대시보드 로그인, bcrypt) |
 | 컨테이너 | Docker |
-| 배포 | Railway (예정) |
+| 배포 | Railway |
 
 ## 아키텍처
 
 ```
 [Next.js(TS) 프론트엔드]
-        │ HTTPS/JSON (X-API-Key 헤더)
+        │ HTTPS/JSON (X-API-Key 또는 Bearer JWT)
         ▼
 [FastAPI 백엔드 (async)]
     │
-    ├─→ [PostgreSQL/Supabase] — API 키 인증, 사용량 제한, 대화 로그 (요청 진입 전 처리)
+    ├─→ [PostgreSQL/Supabase] — API 키 인증, 사용량 제한, 대화 로그, 대시보드 로그인
     │
     ├─→ [MongoDB Atlas Vector Search] — 원전 텍스트 임베딩 저장/검색
     │
@@ -58,25 +60,28 @@
 ```
 fable_backend/
 ├── main.py                      # 앱 진입점, CORS/lifespan(Mongo+Postgres) 설정
-├── config.py                    # 환경변수, 상수, 화자 목록, 이미지 검색 폴백 매핑
+├── config.py                    # 환경변수, 상수, 화자 목록, CORS/JWT 설정
 ├── database.py                  # MongoDB 연결 관리
 ├── database_pg.py               # PostgreSQL(Supabase) 연결 관리 (asyncpg 풀)
 ├── schemas.py                   # 요청/응답 Pydantic 모델
-├── create_account.py            # 계정 발급 CLI
+├── create_account.py            # API 키 계정 발급 CLI
+├── set_login.py                 # 계정에 대시보드 로그인(ID/PW) 부여 CLI
 ├── migrations/
-│   └── 001_accounts_and_logs.sql
+│   ├── 001_accounts_and_logs.sql
+│   └── 002_login_columns.sql
 ├── dao/
 │   ├── source_chunk_dao.py      # Mongo — 벡터 검색 쿼리
-│   ├── account_dao.py           # Postgres — 계정 조회/생성
+│   ├── account_dao.py           # Postgres — 계정 조회/생성/로그인 정보
 │   ├── usage_dao.py             # Postgres — 사용량 조회/원자적 증가
-│   └── log_dao.py               # Postgres — 대화 로그 기록
+│   └── log_dao.py               # Postgres — 대화 로그 기록/조회
 ├── services/
 │   ├── gemini_service.py        # Gemini 호출 (임베딩/라우팅+이미지쿼리/답변생성)
 │   ├── retrieval_service.py     # 임베딩+검색 조합
 │   ├── wiki_image_service.py    # Wikimedia 장면 검색 + 인물 이미지 폴백
-│   └── auth_service.py          # API 키 해시 검증 + 사용량 추적 (FastAPI Depends)
+│   └── auth_service.py          # API 키 인증 + JWT 로그인 (완전히 분리된 두 트랙)
 └── controllers/
-    └── ask_controller.py        # /ask, /health 라우트
+    ├── ask_controller.py        # /ask, /health
+    └── dashboard_controller.py  # /login, /logs, /usage
 ```
 
 DAO(DB 접근) / Services(외부 API 호출) / Controllers(라우트)로 계층을 분리해, 각 레이어가 서로의 책임을 침범하지 않도록 설계했습니다.
@@ -86,7 +91,7 @@ DAO(DB 접근) / Services(외부 API 호출) / Controllers(라우트)로 계층�
 ### 요구 사항
 - Python 3.11+
 - MongoDB Atlas 클러스터 (M0 무료 티어로 충분)
-- PostgreSQL (Supabase 무료 티어로 충분) — Session Pooler 연결 문자열 권장
+- PostgreSQL (Supabase 무료 티어로 충분) — **Session Pooler** 연결 문자열 권장
 - Gemini API 키
 
 ### 설치
@@ -105,9 +110,13 @@ pip install -r requirements.txt
 MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/
 GEMINI_API_KEY=<your-gemini-api-key>
 DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<region>.pooler.supabase.com:5432/postgres
+JWT_SECRET=<32자 이상의 랜덤 문자열>
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
 > 값에 따옴표를 넣지 마세요. `python-dotenv`는 따옴표를 자동으로 처리하지만, Docker의 `--env-file` 옵션은 따옴표를 값의 일부로 그대로 읽어 연결 오류가 발생합니다.
+
+> `CORS_ALLOWED_ORIGINS`는 콤마로 구분해 여러 출처를 등록할 수 있습니다. 배포 시 프론트엔드 도메인을 추가해야 브라우저가 요청을 막지 않습니다.
 
 > Supabase 연결 시 **Direct Connection이 아닌 Session Pooler**를 사용하세요. Direct Connection은 IPv6 전용이라 IPv6 미지원 네트워크에서 DNS 조회가 실패합니다.
 
@@ -115,15 +124,21 @@ DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<region>.pooler.supa
 
 ### 데이터베이스 마이그레이션
 
-Supabase SQL Editor에서 `migrations/001_accounts_and_logs.sql` 실행 (계정/사용량/로그 테이블 생성).
+Supabase SQL Editor에서 순서대로 실행:
+1. `migrations/001_accounts_and_logs.sql` — 계정/사용량/로그 테이블
+2. `migrations/002_login_columns.sql` — 대시보드 로그인 컬럼 추가
 
 ### 계정 발급
 
 ```bash
+# API 키 발급 (콘텐츠 API용)
 python create_account.py --type developer --label "본인 테스트용"
+
+# 위에서 받은 id로 대시보드 로그인 정보 부여 (선택)
+python set_login.py --account-id <위에서 받은 id> --username terry --password "강력한 비밀번호"
 ```
 
-출력되는 API 키는 이 시점에만 표시됩니다(DB엔 해시만 저장). 안전한 곳에 저장 후 클라이언트의 `X-API-Key` 헤더에 사용하세요.
+API 키는 발급 시점에만 표시됩니다(DB엔 해시만 저장). 안전한 곳에 저장 후 클라이언트의 `X-API-Key` 헤더에 사용하세요.
 
 ### 실행
 
@@ -131,7 +146,7 @@ python create_account.py --type developer --label "본인 테스트용"
 uvicorn main:app --reload
 ```
 
-`http://127.0.0.1:8000/docs`에서 Swagger UI로 API를 테스트할 수 있습니다 (요청 헤더에 `X-API-Key` 필요).
+`http://127.0.0.1:8000/docs`에서 Swagger UI로 API를 테스트할 수 있습니다.
 
 ### Docker로 실행
 
@@ -140,20 +155,23 @@ docker build -t fable-backend .
 docker run -d -p 8000:8000 --env-file .env --name fable-backend fable-backend
 ```
 
+## 배포 (Railway)
+
+1. Railway에서 GitHub 저장소(`FABLE`) 연결
+2. **Settings → Root Directory**를 `fable_backend`로 지정 (저장소 루트가 아니라 서브폴더에 `Dockerfile`이 있으므로 필수)
+3. **Variables**에 위 환경변수 전부 등록 (`CORS_ALLOWED_ORIGINS`에 프론트 배포 도메인 포함)
+4. **Settings → Networking → Generate Domain**으로 공개 URL 생성
+5. GitHub에 push하면 자동 재배포됨
+
 ## API
 
 ### `POST /ask`
 
-**요청 헤더**
-```
-X-API-Key: fbl_dev_...
-```
+**요청 헤더**: `X-API-Key: fbl_dev_...`
 
 **요청 본문**
 ```json
-{
-  "question": "아킬레우스는 왜 화가 났어?"
-}
+{ "question": "아킬레우스는 왜 화가 났어?" }
 ```
 
 **응답**
@@ -162,12 +180,7 @@ X-API-Key: fbl_dev_...
   "answer": "내가 왜 분노했냐고 묻는가? 오만함과 탐욕에 빠진 아가멤논이...",
   "speaker": "아킬레우스",
   "sources": [
-    {
-      "work_title": "일리아드",
-      "chapter": "BOOK I",
-      "chunk_text": "...",
-      "score": 0.877
-    }
+    { "work_title": "일리아드", "chapter": "BOOK I", "chunk_text": "...", "score": 0.877 }
   ],
   "image": {
     "title": "Achilles Briseis MAN Napoli Inv9105 n01.jpg",
@@ -179,6 +192,17 @@ X-API-Key: fbl_dev_...
 }
 ```
 `image`는 관련 이미지를 찾지 못하면 `null`입니다. API 키가 없거나 유효하지 않으면 `401`, 배포용 계정이 일일 한도를 초과하면 `429`를 반환합니다.
+
+### `POST /login`
+
+**요청 본문**: `{ "username": "terry", "password": "..." }`
+**응답**: `{ "access_token": "eyJ...", "token_type": "bearer" }`
+5회 연속 실패 시 15분간 잠금(`423`).
+
+### `GET /logs`, `GET /usage`
+
+**요청 헤더**: `Authorization: Bearer <access_token>`
+로그인한 계정의 최근 대화 로그(`/logs`)와 오늘 사용량(`/usage`)을 반환합니다.
 
 ### `GET /health`
 
@@ -200,10 +224,11 @@ python build_source_chunks.py
 - 화자: 호메로스(내레이터), 아킬레우스, 아가멤논, 오디세우스, 데모도코스
 - 답변마다 장면 기반 고전 미술/유물 이미지 첨부 (Wikimedia)
 - API 키 기반 계정 인증, 배포용 계정 일일 사용량 제한, 전체 대화 로그 적재 (Postgres)
+- 대시보드 로그인(JWT) + 로그/사용량 조회 API
+- Railway 배포
 
 ## 다음 단계
 
-- [ ] 프론트 로그인 화면(ID/PW) + 사용량/로그 조회 대시보드
-- [ ] Railway 배포
 - [ ] 역사 도메인(헤로도토스) 추가
 - [ ] 캐릭터 DB를 코드 하드코딩에서 MongoDB 컬렉션으로 이전
+- [ ] 자소서/포트폴리오용 최종 문서화
