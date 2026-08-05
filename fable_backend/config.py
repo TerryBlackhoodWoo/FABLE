@@ -7,6 +7,14 @@ MONGODB_URI = os.getenv("MONGODB_URI")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")  # Supabase(Postgres) 연결 문자열
 
+# CORS 허용 출처 — 콤마로 구분해서 여러 개 지정 가능 (로컬 + 배포 도메인 등)
+_default_origins = "http://localhost:3000,http://127.0.0.1:3000"
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", _default_origins).split(",")
+    if origin.strip()
+]
+
 # 대시보드 로그인 (v0.4.0)
 JWT_SECRET = os.getenv("JWT_SECRET")  # 반드시 .env에 긴 랜덤 문자열로 설정
 JWT_ALGORITHM = "HS256"
