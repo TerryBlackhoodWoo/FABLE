@@ -7,6 +7,13 @@ MONGODB_URI = os.getenv("MONGODB_URI")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")  # Supabase(Postgres) 연결 문자열
 
+# 대시보드 로그인 (v0.4.0)
+JWT_SECRET = os.getenv("JWT_SECRET")  # 반드시 .env에 긴 랜덤 문자열로 설정
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = 60 * 12  # 12시간
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_MINUTES = 15
+
 DB_NAME = "fable_mvp"
 COLLECTION_NAME = "source_chunks"
 VECTOR_INDEX_NAME = "vector_index"

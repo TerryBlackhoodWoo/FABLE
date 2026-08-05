@@ -16,6 +16,7 @@ import database
 import database_pg
 from services import gemini_service
 from controllers.ask_controller import router as ask_router
+from controllers.dashboard_controller import router as dashboard_router
 
 
 @asynccontextmanager
@@ -41,3 +42,4 @@ app.add_middleware(
 )
 
 app.include_router(ask_router)
+app.include_router(dashboard_router)
