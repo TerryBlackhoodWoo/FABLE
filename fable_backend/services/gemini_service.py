@@ -36,12 +36,27 @@ async def embed_query(text: str) -> list[float]:
     return result.embeddings[0].values
 
 
-async def decide_routing(question: str) -> dict:
+async def decide_routing(question: str, history: list[dict] | None = None) -> dict:
     """질문을 어느 화자가 답할지 판단하고, 이 장면에 맞는 미술 검색어까지 같이 뽑아낸다."""
     speaker_list = "\n".join(f"- {name}: {desc}" for name, desc in SPEAKERS.items())
 
+    history_block = ""
+    if history:
+        turns = "\n".join(
+            f'{i+1}. 사용자: "{h["question"]}" / {h["speaker"]}: "{h["answer"]}"'
+            for i, h in enumerate(history[-5:])
+        )
+        history_block = f"""
+
+다음은 지금까지 나눈 대화입니다 (최근 순):
+{turns}
+
+새 질문이 이 대화의 후속 질문(예: "그래서 어떻게 됐어?", "왜 그런 거야?")이면,
+직전 화자를 그대로 유지하는 쪽으로 판단하세요."""
+
     prompt = f"""다음은 FABLE 서비스의 화자 목록입니다:
 {speaker_list}
+{history_block}
 
 사용자 질문: "{question}"
 
@@ -77,8 +92,10 @@ async def decide_routing(question: str) -> dict:
         }
 
 
-async def generate_answer(question: str, chunks: list[dict], routing: dict) -> str:
-    """검색된 청크 + 라우팅 결과를 근거로 캐릭터 1인칭 답변 생성."""
+async def generate_answer(
+    question: str, chunks: list[dict], routing: dict, history: list[dict] | None = None
+) -> str:
+    """검색된 청크 + 라우팅 결과 + 이전 대화 맥락을 근거로 캐릭터 1인칭 답변 생성."""
     speaker = routing.get("speaker", "호메로스")
     speaker_desc = SPEAKERS.get(speaker, SPEAKERS["호메로스"])
 
@@ -90,10 +107,23 @@ async def generate_answer(question: str, chunks: list[dict], routing: dict) -> s
     else:
         context_block = "(관련 원문 근거를 찾지 못했습니다.)"
 
+    history_block = ""
+    if history:
+        turns = "\n".join(
+            f'사용자: "{h["question"]}"\n{h["speaker"]}: "{h["answer"]}"'
+            for h in history[-5:]
+        )
+        history_block = f"""
+
+다음은 지금까지 나눈 대화입니다. 같은 흐름이 이어지도록 자연스럽게 답하되,
+이미 한 얘기를 그대로 반복하지는 마세요:
+{turns}"""
+
     prompt = f"""당신은 {speaker}입니다. {speaker_desc}
 
 다음은 참고할 원문 발췌(영문 원전, Samuel Butler역)입니다:
 {context_block}
+{history_block}
 
 규칙:
 1. 반드시 한국어로, {speaker} 한 사람의 1인칭 말투로만 답할 것.

@@ -1,8 +1,15 @@
 from pydantic import BaseModel
 
 
+class ConversationTurn(BaseModel):
+    question: str
+    answer: str
+    speaker: str
+
+
 class AskRequest(BaseModel):
     question: str
+    history: list[ConversationTurn] = []
 
 
 class SourceChunk(BaseModel):
@@ -28,6 +35,7 @@ class AskResponse(BaseModel):
 
 
 # ---------- 대시보드 로그인 (v0.4.0) ----------
+
 
 class LoginRequest(BaseModel):
     username: str

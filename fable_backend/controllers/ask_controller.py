@@ -20,11 +20,15 @@ router = APIRouter()
 async def ask(
     request: AskRequest, account: dict = Depends(auth_service.verify_and_track)
 ):
+    history = [h.model_dump() for h in request.history]
+
     # 1단계: 벡터 검색(임베딩+DB조회)과 라우팅 판단(+이미지 검색어 생성)을 asyncio.gather로 동시 처리
     search_task = asyncio.create_task(
         retrieval_service.search_similar_chunks(request.question)
     )
-    routing_task = asyncio.create_task(gemini_service.decide_routing(request.question))
+    routing_task = asyncio.create_task(
+        gemini_service.decide_routing(request.question, history)
+    )
 
     chunks, routing = await asyncio.gather(search_task, routing_task)
     speaker = routing.get("speaker", "호메로스")
@@ -33,7 +37,7 @@ async def ask(
 
     # 2단계: 답변 생성(Gemini)과 장면 기반 이미지 검색(Wikimedia)도 서로 무관한 작업이라 동시 처리
     answer_task = asyncio.create_task(
-        gemini_service.generate_answer(request.question, chunks, routing)
+        gemini_service.generate_answer(request.question, chunks, routing, history)
     )
     image_task = asyncio.create_task(
         wiki_image_service.search_character_image(image_query, fallback_title)
