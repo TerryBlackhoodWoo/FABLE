@@ -10,13 +10,14 @@
 
 〈남산의 부장들〉을 배경지식 없이 봤을 때와, 관련 역사(10·26 등)를 알고 봤을 때 같은 영화가 완전히 다르게 읽혔던 경험에서 출발한 프로젝트입니다. FABLE은 이 경험을 서비스로 만들었습니다 — 영화를 보기 전, 신화·역사 속 인물(내레이터)이 직접 "이거 알고 보면 더 재밌어"라고 브리핑해주는 캐릭터 챗입니다.
 
-01단계 MVP는 호메로스가 진행하는 신화 도메인(일리아스·오디세이아)을 다룹니다.
+01단계 MVP는 호메로스가 진행하는 신화 도메인(일리아스·오디세이아)을 다뤘고, 이후 헤로도토스가 진행하는 역사 도메인(《역사》)이 추가되었습니다.
 
 ## 핵심 설계
 
-- **내레이터 → 캐릭터 핸드오프**: 호메로스가 전체 흐름을 안내하다가, 질문이 특정 인물(아킬레우스 등)의 디테일을 물으면 그 캐릭터로 답변 화자가 전환됩니다.
-- **원전 근거 우선**: 모든 답변은 퍼블릭도메인 원전(Samuel Butler역 일리아드/오디세이아) 청크를 RAG로 검색해 근거로 삼습니다. 원문 인용은 15단어 이내로 제한하고, 근거가 부족하면 "아직 다루지 못했다"고 솔직히 답합니다.
+- **신화/역사 도메인 분리 + 내레이터 → 캐릭터 핸드오프**: 호메로스(신화 도메인)와 헤로도토스(역사 도메인)가 각자 영역을 안내하다가, 질문이 특정 인물(아킬레우스 등)의 디테일을 물으면 그 캐릭터로 답변 화자가 전환됩니다.
+- **원전 근거 우선**: 모든 답변은 퍼블릭도메인 원전(Samuel Butler역 일리아드/오디세이아, G.C. Macaulay역 헤로도토스 《역사》) 청크를 RAG로 검색해 근거로 삼습니다. 원문 인용은 15단어 이내로 제한하고, 근거가 부족하면 "아직 다루지 못했다"고 솔직히 답합니다.
 - **1답변 1화자**: 답변 안에서 화자가 임의로 바뀌지 않도록 프롬프트 레벨에서 강제합니다.
+- **멀티턴 대화**: 최근 5턴까지의 대화 히스토리를 요청에 함께 전달해, 이전 맥락을 반영한 답변이 가능합니다.
 - **장면 기반 이미지 검색**: 답변마다 그 장면을 그린 고전 회화·유물 이미지를 Wikimedia에서 함께 찾아 보여줍니다. 인물 이름만으로 검색하면 동명이인이 걸리는 문제가 있어, 라우팅 판단 시 Gemini가 장면을 특정하는 영문 검색어까지 함께 생성하고, 실패 시 위키백과 인물 대표 이미지로 폴백합니다.
 - **계정별 접근 제어**: 개발자 계정(무제한)과 배포용 계정(일일 한도)을 구분해 API 키로 인증합니다. 모든 요청은 Postgres에 로그로 남습니다.
 - **대시보드 로그인**: 관리자가 발급한 아이디/비밀번호로 로그인해, 해당 계정의 대화 로그와 사용량을 조회할 수 있습니다. API 키 인증(콘텐츠용)과 완전히 분리된 별도 인증 트랙(JWT)입니다.
@@ -52,7 +53,7 @@
 
   0단계: API 키 검증 + 사용량 체크 (Gemini/Mongo 호출 전, 비용 발생 이전에 차단)
   1단계: 벡터검색 + 라우팅판단 → asyncio.gather로 동시 처리
-  2단계: 답변생성 + 이미지검색 → asyncio.gather로 동시 처리
+  2단계: 답변생성(히스토리 반영) + 이미지검색 → asyncio.gather로 동시 처리
 ```
 
 ### 백엔드 레이어 구조
@@ -60,22 +61,28 @@
 ```
 fable_backend/
 ├── main.py                      # 앱 진입점, CORS/lifespan(Mongo+Postgres) 설정
-├── config.py                    # 환경변수, 상수, 화자 목록, CORS/JWT 설정
+├── config.py                    # 환경변수, 상수, 화자 목록(SPEAKERS), CORS/JWT 설정
 ├── database.py                  # MongoDB 연결 관리
 ├── database_pg.py               # PostgreSQL(Supabase) 연결 관리 (asyncpg 풀)
-├── schemas.py                   # 요청/응답 Pydantic 모델
+├── schemas.py                   # 요청/응답 Pydantic 모델 (AskRequest에 history 필드 포함)
 ├── create_account.py            # API 키 계정 발급 CLI
 ├── set_login.py                 # 계정에 대시보드 로그인(ID/PW) 부여 CLI
+├── build_source_chunks.py       # 원전 텍스트 → 청크 → 임베딩 → Mongo 저장 (전체 자동화)
 ├── migrations/
 │   ├── 001_accounts_and_logs.sql
 │   └── 002_login_columns.sql
+├── sources/                     # 원전 텍스트 (Project Gutenberg, git 추적 제외)
+│   ├── iliad_full.md            # 일리아드 24권 전체 (Samuel Butler역)
+│   ├── odyssey_full.md          # 오디세이아 24권 전체 (Samuel Butler역)
+│   ├── herodotus_vol1.md        # 역사 1~4권 (G.C. Macaulay역)
+│   └── herodotus_vol2.md        # 역사 5~9권 (G.C. Macaulay역)
 ├── dao/
 │   ├── source_chunk_dao.py      # Mongo — 벡터 검색 쿼리
 │   ├── account_dao.py           # Postgres — 계정 조회/생성/로그인 정보
 │   ├── usage_dao.py             # Postgres — 사용량 조회/원자적 증가
 │   └── log_dao.py               # Postgres — 대화 로그 기록/조회
 ├── services/
-│   ├── gemini_service.py        # Gemini 호출 (임베딩/라우팅+이미지쿼리/답변생성)
+│   ├── gemini_service.py        # Gemini 호출 (임베딩/라우팅+이미지쿼리/답변생성, 히스토리 반영)
 │   ├── retrieval_service.py     # 임베딩+검색 조합
 │   ├── wiki_image_service.py    # Wikimedia 장면 검색 + 인물 이미지 폴백
 │   └── auth_service.py          # API 키 인증 + JWT 로그인 (완전히 분리된 두 트랙)
@@ -171,8 +178,15 @@ docker run -d -p 8000:8000 --env-file .env --name fable-backend fable-backend
 
 **요청 본문**
 ```json
-{ "question": "아킬레우스는 왜 화가 났어?" }
+{
+  "question": "아킬레우스는 왜 화가 났어?",
+  "history": [
+    { "role": "user", "content": "일리아드 1권 내용 알려줘" },
+    { "role": "assistant", "content": "..." }
+  ]
+}
 ```
+`history`는 선택 필드이며, 최근 5턴까지 전달해 멀티턴 대화 맥락을 반영합니다.
 
 **응답**
 ```json
@@ -216,19 +230,22 @@ docker run -d -p 8000:8000 --env-file .env --name fable-backend fable-backend
 python build_source_chunks.py
 ```
 
-`sources/` 폴더에 있는 퍼블릭도메인 원전(Project Gutenberg, Samuel Butler역 일리아드·오디세이아)을 문장 단위로 재청크하고, Gemini Embedding API로 벡터화한 뒤 MongoDB의 `source_chunks` 컬렉션에 저장합니다.
+`sources/` 폴더에 있는 퍼블릭도메인 원전(Project Gutenberg — 일리아드·오디세이아 Samuel Butler역, 헤로도토스 《역사》 G.C. Macaulay역)을 Book 단위로 자동 청크 분할하고, Gemini Embedding API로 벡터화한 뒤 MongoDB의 `source_chunks` 컬렉션에 저장합니다. 재실행 시 기존 데이터를 지우고 전체로 교체합니다(`delete_many` 후 재삽입).
 
-## 현재 범위 (01단계)
+## 현재 범위
 
-- 신화 도메인: 일리아드 BOOK I(전쟁 발발 정황), 오디세이아 BOOK VIII(목마 에피소드)
-- 화자: 호메로스(내레이터), 아킬레우스, 아가멤논, 오디세우스, 데모도코스
+- 신화 도메인: 일리아드·오디세이아 (호메로스 내레이터)
+- 역사 도메인: 헤로도토스 《역사》 (헤로도토스 내레이터) — 화자 라우팅 반영 완료
+- 화자: 호메로스(내레이터, 신화 도메인), 아킬레우스, 아가멤논, 오디세우스, 데모도코스, 헤로도토스(역사 도메인)
 - 답변마다 장면 기반 고전 미술/유물 이미지 첨부 (Wikimedia)
+- 최근 5턴까지 대화 히스토리 반영 (멀티턴)
 - API 키 기반 계정 인증, 배포용 계정 일일 사용량 제한, 전체 대화 로그 적재 (Postgres)
 - 대시보드 로그인(JWT) + 로그/사용량 조회 API
 - Railway 배포
 
 ## 다음 단계
 
-- [ ] 역사 도메인(헤로도토스) 추가
-- [ ] 캐릭터 DB를 코드 하드코딩에서 MongoDB 컬렉션으로 이전
+- [x] 역사 도메인(헤로도토스) 화자 추가 — 라우팅 반영 완료
+- [x] 원전 텍스트 전체 학습 (`build_source_chunks.py` 실행, 헤로도토스 원문 전체 적재)
+- [x] 캐릭터 DB를 코드 하드코딩에서 MongoDB 컬렉션으로 이전
 - [ ] 자소서/포트폴리오용 최종 문서화
